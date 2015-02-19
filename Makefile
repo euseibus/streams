@@ -6,8 +6,11 @@ FFLAGS = -O2
 
 all: stream
 
-stream_c: stream.c
-	$(CC) $(CFLAGS) stream.c -o stream.x
+stream: stream.c
+	$(CC) -c stream_locale.c
+	$(CC) -c $(CFLAGS) stream.c 
+	$(CC) -c stream_util.c
+	$(CC) $(CFLAGS) stream_util.o stream_locale.o stream.o -o stream.x
 
 clean:
 	rm -f stream.x *.o
