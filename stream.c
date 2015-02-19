@@ -42,10 +42,14 @@
 /*-----------------------------------------------------------------------*/
 # include <stdio.h>
 # include <unistd.h>
+#include <stdlib.h>
 # include <math.h>
 # include <float.h>
 # include <limits.h>
 # include <sys/time.h>
+# include "stream_locale.h"
+# include "stream_util.h"
+
 
 /*-----------------------------------------------------------------------
  * INSTRUCTIONS:
@@ -90,9 +94,6 @@
  *          will override the default size of 10M with a new size of 100M elements
  *          per array.
  */
-#ifndef STREAM_ARRAY_SIZE
-#   define STREAM_ARRAY_SIZE	100000000
-#endif
 
 /*  2) STREAM runs each kernel "NTIMES" times and reports the *best* result
  *         for any iteration after the first, therefore the minimum value
@@ -103,23 +104,7 @@
  *      NTIMES can also be set on the compile line without changing the source
  *         code using, for example, "-DNTIMES=7".
  */
-#ifdef NTIMES
-#if NTIMES<=1
-#   define NTIMES	10
-#endif
-#endif
-#ifndef NTIMES
-#   define NTIMES	50
-#endif
 
-/*  Users are allowed to modify the "OFFSET" variable, which *may* change the
- *         relative alignment of the arrays (though compilers may change the 
- *         effective offset by making the arrays non-contiguous on some systems). 
- *      Use of non-zero values for OFFSET can be especially helpful if the
- *         STREAM_ARRAY_SIZE is set to a value close to a large power of 2.
- *      OFFSET can also be set on the compile line without changing the source
- *         code using, for example, "-DOFFSET=56".
- */
 #ifndef OFFSET
 #   define OFFSET	0
 #endif
@@ -163,8 +148,6 @@
  *
  *-----------------------------------------------------------------------*/
 
-# define HLINE "-------------------------------------------------------------\n"
-
 # ifndef MIN
 # define MIN(x,y) ((x)<(y)?(x):(y))
 # endif
@@ -176,22 +159,23 @@
 #define STREAM_TYPE double
 #endif
 
-static STREAM_TYPE	a[STREAM_ARRAY_SIZE+OFFSET],
-			b[STREAM_ARRAY_SIZE+OFFSET],
-			c[STREAM_ARRAY_SIZE+OFFSET];
+//static STREAM_TYPE	a[STREAM_ARRAY_SIZE+OFFSET],
+//			b[STREAM_ARRAY_SIZE+OFFSET],
+//			c[STREAM_ARRAY_SIZE+OFFSET];
+
+STREAM_TYPE *a,*b,*c;
 
 static double	avgtime[4] = {0}, maxtime[4] = {0},
 		mintime[4] = {FLT_MAX,FLT_MAX,FLT_MAX,FLT_MAX};
 
-static char	*label[4] = {"Copy:      ", "Scale:     ",
-    "Add:       ", "Triad:     "};
+//static double	bytes[4] = {
+//    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
+//    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
+//    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
+//    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE
+//    };
 
-static double	bytes[4] = {
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    2 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE,
-    3 * sizeof(STREAM_TYPE) * STREAM_ARRAY_SIZE
-    };
+double bytes[4];
 
 extern double mysecond();
 extern void checkSTREAMresults();
@@ -204,55 +188,81 @@ extern void tuned_STREAM_Triad(STREAM_TYPE scalar);
 #ifdef _OPENMP
 extern int omp_get_num_threads();
 #endif
+
+unsigned long long STREAM_ARRAY_SIZE;
+unsigned long long NTIMES;
+int verb_level;
+
+int allocate_global_resources(unsigned long long array_size, unsigned long long iterations){
+    a=(STREAM_TYPE *)(malloc(sizeof(STREAM_TYPE)*array_size));
+    b=(STREAM_TYPE *)(malloc(sizeof(STREAM_TYPE)*array_size));
+    c=(STREAM_TYPE *)(malloc(sizeof(STREAM_TYPE)*array_size));
+    bytes[0]=2 * sizeof(STREAM_TYPE) * array_size;
+    bytes[1]=2 * sizeof(STREAM_TYPE) * array_size;
+    bytes[2]=3 * sizeof(STREAM_TYPE) * array_size;
+    bytes[3]=3 * sizeof(STREAM_TYPE) * array_size;
+}
+
+int allocate_2D_d_array(double **var, int nr_elements, unsigned long long size){ 
+    int i;
+    for(i=0;i<nr_elements;i++)
+        var[i]=(double *)malloc(sizeof(double)*size);
+}
+
+int free_2D_d_array(double **var, int nr_elements){
+    int i;
+    for(i=0;i<nr_elements;i++)
+        free(var[i]);
+}
+
+int free_global_resources(){
+   free(a);
+   free(b);
+   free(c);
+}
+
 int
-main()
+main(int argc, char **argv)
     {
     int			quantum, checktick();
     int			BytesPerWord;
     int			k;
     ssize_t		j;
     STREAM_TYPE		scalar;
-    double		t, times[4][NTIMES];
+    struct stream_opts  strm;
+    double		t, *times[4];//[NTIMES];
     double              count_gbits;
+    
 
     /* --- SETUP --- determine precision and check timing --- */
 
-//    printf(HLINE);
-//    printf("STREAM version $Revision: 5.10 $\n");
-//    printf(HLINE);
+    stream_parse_arguments(&strm, argc, argv);
+    STREAM_ARRAY_SIZE=strm.array_size;
+    NTIMES=strm.iterations;
+    verb_level=strm.verbosity;
+    allocate_global_resources(strm.array_size,strm.iterations);
+    allocate_2D_d_array(times, 4, strm.iterations);
+    
+    if(verb_level>=VERBOSE)printf(HLINE);
+    if(verb_level>=VERBOSE)printf(s_version_str,s_version);
+    if(verb_level>=VERBOSE)printf(HLINE);
     BytesPerWord = sizeof(STREAM_TYPE);
-//    printf("This system uses %d bytes per array element.\n",
-//	BytesPerWord);
+    if(verb_level>=VERBOSE)printf(info_bytes_array,BytesPerWord,(unsigned long long) STREAM_ARRAY_SIZE, OFFSET,
+	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0),
+	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0/1024.0),
+	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.),
+	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024./1024.),
+        NTIMES);
 
-//    printf(HLINE);
-#ifdef N
-/*    printf("*****  WARNING: ******\n");
-    printf("      It appears that you set the preprocessor variable N when compiling this code.\n");
-    printf("      This version of the code uses the preprocesor variable STREAM_ARRAY_SIZE to control the array size\n");
-    printf("      Reverting to default value of STREAM_ARRAY_SIZE=%llu\n",(unsigned long long) STREAM_ARRAY_SIZE);
-    printf("*****  WARNING: ******\n");
-*/
-#endif
-
-    printf("Array size = %llu (elements), Offset = %d (elements)\n" , (unsigned long long) STREAM_ARRAY_SIZE, OFFSET);
-//    printf("Memory per array = %.1f MiB (= %.1f GiB).\n", 
-//	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0),
-//	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0/1024.0));
-//    printf("Total memory required = %.1f MiB (= %.1f GiB).\n",
-//	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.),
-//	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024./1024.));
-//    printf("Each kernel will be executed %d times.\n", NTIMES);
-//    printf(" The *best* time for each kernel (excluding the first iteration)\n"); 
-//    printf(" will be used to compute the reported bandwidth.\n");
 
 #ifdef _OPENMP
-    printf(HLINE);
+    if(verb_level>=VERBOSE)printf(HLINE);
 #pragma omp parallel 
     {
 #pragma omp master
 	{
 	    k = omp_get_num_threads();
-	    printf ("Number of Threads requested = %i\n",k);
+	    if(verb_level>=VERBOSE)printf ("Number of Threads requested = %i\n",k);
         }
     }
 #endif
@@ -262,7 +272,7 @@ main()
 #pragma omp parallel
 #pragma omp atomic 
 		k++;
-    printf ("Number of Threads counted = %i\n",k);
+    if(verb_level>=VERBOSE)printf ("Number of Threads counted = %i\n",k);
 #endif
 
     /* Get initial value for system clock. */
@@ -273,13 +283,13 @@ main()
 	    c[j] = 0.0;
 	}
 
-    printf(HLINE);
+    if(verb_level>=VERBOSE)printf(HLINE);
 
     if  ( (quantum = checktick()) >= 1) 
-	printf("Your clock granularity/precision appears to be "
+	if(verb_level>=VERBOSE)printf("Your clock granularity/precision appears to be "
 	    "%d microseconds.\n", quantum);
     else {
-	printf("Your clock granularity appears to be "
+	if(verb_level>=VERBOSE)printf("Your clock granularity appears to be "
 	    "less than one microsecond.\n");
 	quantum = 1;
     }
@@ -290,19 +300,8 @@ main()
 		a[j] = 2.0E0 * a[j];
     t = 1.0E6 * (mysecond() - t);
 
-/*    printf("Each test below will take on the order"
-	" of %d microseconds.\n", (int) t  );
-    printf("   (= %d clock ticks)\n", (int) (t/quantum) );
-    printf("Increase the size of the arrays if this shows that\n");
-    printf("you are not getting at least 20 clock ticks per test.\n");
+    if(verb_level>=VERBOSE)printf(guidelines, (int) t, (int) (t/quantum) );
 
-    printf(HLINE);
-
-    printf("WARNING -- The above is only a rough guideline.\n");
-    printf("For best results, please be sure you know the\n");
-    printf("precision of your system timer.\n");
-    printf(HLINE);
-*/    
     /*	--- MAIN LOOP --- repeat test cases NTIMES times --- */
 
     scalar = 3.0;
@@ -361,21 +360,29 @@ main()
 	    }
 	}
     
-    printf("Function      Best Gbps      Avg Gbps      Min Gbps\n");
+    if(verb_level>=NORMAL)printf("Function      Best Gbps      Avg Gbps      Min Gbps\n");
     for (j=0; j<4; j++) {
 		avgtime[j] = avgtime[j]/(double)(NTIMES-1);
                 count_gbits=1.0E-09 * bytes[j]*8.0;
-		printf("%s%12.1f  %12.1f  %12.1f\n"/*  %11.6f\n"*/, label[j],
+		if(verb_level>=NORMAL)printf("%s%12.1f  %12.1f  %12.1f\n"/*  %11.6f\n"*/, label[j],
 	        count_gbits/mintime[j],
 	        count_gbits/avgtime[j],
 	       //mintime[j],
 	        count_gbits/maxtime[j]);
+		if(verb_level<NORMAL)printf("%f %f %f\n",
+				      count_gbits/mintime[j],
+				      count_gbits/avgtime[j],
+		                      count_gbits/maxtime[j]);
+
     }
-    printf(HLINE);
+    if(verb_level>=VERBOSE)printf(HLINE);
 
     /* --- Check Results --- */
     checkSTREAMresults();
-    printf(HLINE);
+    if(verb_level>=VERBOSE)printf(HLINE);
+
+    free_2D_d_array(times,4);
+    free_global_resources();
 
     return 0;
 }
@@ -540,13 +547,13 @@ void checkSTREAMresults ()
 		printf("     For array c[], %d errors were found.\n",ierr);
 	}
 	if (err == 0) {
-		printf ("Solution Validates: avg error less than %e on all three arrays\n",epsilon);
+		if(verb_level>=VERBOSE)printf ("Solution Validates: avg error less than %e on all three arrays\n",epsilon);
 	}
 #ifdef VERBOSE
-	printf ("Results Validation Verbose Results: \n");
-	printf ("    Expected a(1), b(1), c(1): %f %f %f \n",aj,bj,cj);
-	printf ("    Observed a(1), b(1), c(1): %f %f %f \n",a[1],b[1],c[1]);
-	printf ("    Rel Errors on a, b, c:     %e %e %e \n",abs(aAvgErr/aj),abs(bAvgErr/bj),abs(cAvgErr/cj));
+	if(verb_level>=VERBOSE)printf ("Results Validation Verbose Results: \n");
+	if(verb_level>=VERBOSE)printf ("    Expected a(1), b(1), c(1): %f %f %f \n",aj,bj,cj);
+	if(verb_level>=VERBOSE)printf ("    Observed a(1), b(1), c(1): %f %f %f \n",a[1],b[1],c[1]);
+	if(verb_level>=VERBOSE)printf ("    Rel Errors on a, b, c:     %e %e %e \n",abs(aAvgErr/aj),abs(bAvgErr/bj),abs(cAvgErr/cj));
 #endif
 }
 
