@@ -91,7 +91,7 @@
  *          per array.
  */
 #ifndef STREAM_ARRAY_SIZE
-#   define STREAM_ARRAY_SIZE	10000000
+#   define STREAM_ARRAY_SIZE	100000000
 #endif
 
 /*  2) STREAM runs each kernel "NTIMES" times and reports the *best* result
@@ -109,7 +109,7 @@
 #endif
 #endif
 #ifndef NTIMES
-#   define NTIMES	10
+#   define NTIMES	50
 #endif
 
 /*  Users are allowed to modify the "OFFSET" variable, which *may* change the
@@ -213,35 +213,37 @@ main()
     ssize_t		j;
     STREAM_TYPE		scalar;
     double		t, times[4][NTIMES];
+    double              count_gbits;
 
     /* --- SETUP --- determine precision and check timing --- */
 
-    printf(HLINE);
-    printf("STREAM version $Revision: 5.10 $\n");
-    printf(HLINE);
+//    printf(HLINE);
+//    printf("STREAM version $Revision: 5.10 $\n");
+//    printf(HLINE);
     BytesPerWord = sizeof(STREAM_TYPE);
-    printf("This system uses %d bytes per array element.\n",
-	BytesPerWord);
+//    printf("This system uses %d bytes per array element.\n",
+//	BytesPerWord);
 
-    printf(HLINE);
+//    printf(HLINE);
 #ifdef N
-    printf("*****  WARNING: ******\n");
+/*    printf("*****  WARNING: ******\n");
     printf("      It appears that you set the preprocessor variable N when compiling this code.\n");
     printf("      This version of the code uses the preprocesor variable STREAM_ARRAY_SIZE to control the array size\n");
     printf("      Reverting to default value of STREAM_ARRAY_SIZE=%llu\n",(unsigned long long) STREAM_ARRAY_SIZE);
     printf("*****  WARNING: ******\n");
+*/
 #endif
 
     printf("Array size = %llu (elements), Offset = %d (elements)\n" , (unsigned long long) STREAM_ARRAY_SIZE, OFFSET);
-    printf("Memory per array = %.1f MiB (= %.1f GiB).\n", 
-	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0),
-	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0/1024.0));
-    printf("Total memory required = %.1f MiB (= %.1f GiB).\n",
-	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.),
-	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024./1024.));
-    printf("Each kernel will be executed %d times.\n", NTIMES);
-    printf(" The *best* time for each kernel (excluding the first iteration)\n"); 
-    printf(" will be used to compute the reported bandwidth.\n");
+//    printf("Memory per array = %.1f MiB (= %.1f GiB).\n", 
+//	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0),
+//	BytesPerWord * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.0/1024.0));
+//    printf("Total memory required = %.1f MiB (= %.1f GiB).\n",
+//	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024.),
+//	(3.0 * BytesPerWord) * ( (double) STREAM_ARRAY_SIZE / 1024.0/1024./1024.));
+//    printf("Each kernel will be executed %d times.\n", NTIMES);
+//    printf(" The *best* time for each kernel (excluding the first iteration)\n"); 
+//    printf(" will be used to compute the reported bandwidth.\n");
 
 #ifdef _OPENMP
     printf(HLINE);
@@ -288,7 +290,7 @@ main()
 		a[j] = 2.0E0 * a[j];
     t = 1.0E6 * (mysecond() - t);
 
-    printf("Each test below will take on the order"
+/*    printf("Each test below will take on the order"
 	" of %d microseconds.\n", (int) t  );
     printf("   (= %d clock ticks)\n", (int) (t/quantum) );
     printf("Increase the size of the arrays if this shows that\n");
@@ -300,7 +302,7 @@ main()
     printf("For best results, please be sure you know the\n");
     printf("precision of your system timer.\n");
     printf(HLINE);
-    
+*/    
     /*	--- MAIN LOOP --- repeat test cases NTIMES times --- */
 
     scalar = 3.0;
@@ -359,15 +361,15 @@ main()
 	    }
 	}
     
-    printf("Function    Best Rate MB/s  Avg time     Min time     Max time\n");
+    printf("Function      Best Gbps      Avg Gbps      Min Gbps\n");
     for (j=0; j<4; j++) {
 		avgtime[j] = avgtime[j]/(double)(NTIMES-1);
-
-		printf("%s%12.1f  %11.6f  %11.6f  %11.6f\n", label[j],
-	       1.0E-06 * bytes[j]/mintime[j],
-	       avgtime[j],
-	       mintime[j],
-	       maxtime[j]);
+                count_gbits=1.0E-09 * bytes[j]*8.0;
+		printf("%s%12.1f  %12.1f  %12.1f\n"/*  %11.6f\n"*/, label[j],
+	        count_gbits/mintime[j],
+	        count_gbits/avgtime[j],
+	       //mintime[j],
+	        count_gbits/maxtime[j]);
     }
     printf(HLINE);
 
